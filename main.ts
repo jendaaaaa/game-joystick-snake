@@ -2,7 +2,7 @@
 // CONSTANTS
 let VALUE_DEADZONE = 400;
 let VALUE_CENTER = 511;
-let DELAY_INPUT = 100;
+let DELAY_INPUT = 50;
 let INTERVAL_BLINK = 5;
 let INTERVAL_INIT = 500;
 let INTERVAL_COEFF = 0.98;
@@ -11,8 +11,11 @@ let BRIGHTNESS_TREASURE = 128;
 let LIM_X = [0, 4];
 let LIM_Y = [0, 4];
 let LIM_SIZE = 5;
-let PIN_X = DigitalPin.P2;
-let PIN_Y = DigitalPin.P1;
+let PIN_X = AnalogPin.P2;
+let PIN_Y = AnalogPin.P1;
+let TIME_DEBOUNCE = 30;
+let INP_PRESSED = true;
+let INP_RELEASED = false;
 
 // VARIABLES
 let x_input = 0;
@@ -31,6 +34,12 @@ let b_treasure = true;
 let counter_treasure = 0;
 let arr: number[] = [0];
 let interval = INTERVAL_INIT;
+let xButtonState = false;
+let xLastButtonState = false;
+let xLastDebounceTime = 0;
+let yButtonState = false;
+let yLastButtonState = false;
+let yLastDebounceTime = 0;
 
 // INIT
 game.setScore(0);
@@ -39,37 +48,8 @@ game.addScore(0);
 ////// INPUT
 // JOYSTICK INPUT
 basic.forever(function () {
-    y_input = pins.analogReadPin(AnalogPin.P1);
-    x_input = pins.analogReadPin(AnalogPin.P2);
-    if (x_input > VALUE_CENTER + VALUE_DEADZONE) {
-        if (x_move !== 1 && !b_change_dir) {
-            x_move = -1;
-            y_move = 0;
-            b_change_dir = true;
-        }
-        pause(DELAY_INPUT);
-    } else if (x_input < VALUE_CENTER - VALUE_DEADZONE) {
-        if (x_move !== -1 && !b_change_dir) {
-            x_move = 1;
-            y_move = 0;
-            b_change_dir = true;
-        }
-        pause(DELAY_INPUT);
-    } else if (y_input > VALUE_CENTER + VALUE_DEADZONE) {
-        if (y_move !== 1 && !b_change_dir) {
-            x_move = 0;
-            y_move = -1;
-            b_change_dir = true;
-        }
-        pause(DELAY_INPUT);
-    } else if (y_input < VALUE_CENTER - VALUE_DEADZONE) {
-        if (y_move !== -1 && !b_change_dir) {
-            x_move = 0;
-            y_move = 1;
-            b_change_dir = true;
-        }
-        pause(DELAY_INPUT);
-    }
+    debounceX();
+    debounceY();
 })
 
 // ALTERNATIVE INPUT
@@ -87,18 +67,25 @@ input.onButtonPressed(Button.A, function () {
 // SNAKE
 basic.forever(function () {
     if (b_game_over) {
+        if (game.score() > 23){
+            game.addScore(0);
+            pause(500);
+            basic.showString("WIN!");
+        }
         game.showScore();
         game.setScore(0);
         b_game_over = false;
+        arr = [0];
         interval = INTERVAL_INIT;
     }
-    generateImage();
     moveForward();
+    generateImage();
 })
 
 // TREASURE
 basic.forever(function () {
     if (!b_game_over) {
+        checkTreasure();
         showTreasure();
     }
 })
@@ -123,19 +110,21 @@ function moveForward () {
     }
     // check collision
     if(led.point(x_head, y_head) && x_head !== x_treasure && y_head !== y_treasure){
-        arr = [0];
         b_game_over = true;
     }
-    // check treasure
+    // move snake
+    arr.insertAt(0, x_head + y_head * 5);
+    arr.removeAt(arr.length - 1);
+}
+
+// CHECK TREASURE
+function checkTreasure(){
     if (x_head == x_treasure && y_head == y_treasure) {
         arr.push(arr[0]);
         game.setScore(game.score() + 1);
         interval = interval * INTERVAL_COEFF;
         generateTreasure();
     }
-    // move snake
-    arr.insertAt(0, x_head + y_head * 5);
-    arr.removeAt(arr.length - 1);
 }
 
 // DISPLAY SNAKE
@@ -202,4 +191,77 @@ function turnRight(){
         x_move = 1;
         y_move = 0;
     }
+}
+
+function turnX(){
+    x_input = pins.analogReadPin(PIN_X);
+    if (x_input > VALUE_CENTER + VALUE_DEADZONE) {
+        if (x_move !== 1 && !b_change_dir) {
+            x_move = -1;
+            y_move = 0;
+            b_change_dir = true;
+        }
+        // pause(DELAY_INPUT);
+    } else if (x_input < VALUE_CENTER - VALUE_DEADZONE) {
+        if (x_move !== -1 && !b_change_dir) {
+            x_move = 1;
+            y_move = 0;
+            b_change_dir = true;
+        }
+        // pause(DELAY_INPUT);
+    }
+}
+
+function turnY(){
+    y_input = pins.analogReadPin(PIN_Y);
+    if (y_input > VALUE_CENTER + VALUE_DEADZONE) {
+        if (y_move !== 1 && !b_change_dir) {
+            x_move = 0;
+            y_move = -1;
+            b_change_dir = true;
+        }
+        // pause(DELAY_INPUT);
+    } else if (y_input < VALUE_CENTER - VALUE_DEADZONE) {
+        if (y_move !== -1 && !b_change_dir) {
+            x_move = 0;
+            y_move = 1;
+            b_change_dir = true;
+        }
+        // pause(DELAY_INPUT);
+    }
+}
+
+// DEBOUNCIONG
+function debounceX() {
+    let currentTime = input.runningTime();
+    let buttonRead = (Math.abs(pins.analogReadPin(PIN_X) - VALUE_CENTER) - VALUE_DEADZONE) > 0;
+    if (buttonRead !== xLastButtonState) {
+        xLastDebounceTime = currentTime;
+    }
+    if (input.runningTime() - xLastDebounceTime > TIME_DEBOUNCE) {
+        if (buttonRead !== xButtonState) {
+            xButtonState = buttonRead;
+            if (xButtonState === INP_PRESSED) {
+                turnX();
+            }
+        }
+    }
+    xLastButtonState = buttonRead
+}
+
+function debounceY() {
+    let currentTime = input.runningTime();
+    let buttonRead = (Math.abs(pins.analogReadPin(PIN_Y) - VALUE_CENTER) - VALUE_DEADZONE) > 0;
+    if (buttonRead !== yLastButtonState) {
+        yLastDebounceTime = currentTime;
+    }
+    if (input.runningTime() - yLastDebounceTime > TIME_DEBOUNCE) {
+        if (buttonRead !== yButtonState) {
+            yButtonState = buttonRead;
+            if (yButtonState === INP_PRESSED) {
+                turnY();
+            }
+        }
+    }
+    yLastButtonState = buttonRead
 }
